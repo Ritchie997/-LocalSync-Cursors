@@ -153,12 +153,13 @@ wss.on('connection', (ws, req) => {
     return;
   }
   
-  // Validate token
-  if (!validateToken(token)) {
-    console.log(`[Auth] Rejected connection with invalid token`);
-    ws.close(4003, 'Invalid token');
-    return;
-  }
+  // Token validation disabled for local use
+  // if (!validateToken(token)) {
+  //   console.log(`[Auth] Rejected connection with invalid token`);
+  //   ws.close(4003, 'Invalid token');
+  //   return
+  // }
+  console.log(`[Auth] Connection accepted (no auth required)`);
   
   // Parse room and doc from URL: /{room}/{doc}
   const parts = pathname.split('/').filter(p => p);
