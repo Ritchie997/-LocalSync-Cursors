@@ -1,221 +1,192 @@
 import http from 'http';
+import { WebSocketServer } from 'ws';
+import { setupWSConnection } from 'y-websocket/bin/utils.js';
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
-import crypto from 'crypto';
-import { WebSocketServer } from 'ws';
 import * as Y from 'yjs';
-import * as syncProtocol from 'y-protocols/sync';
-import * as awarenessProtocol from 'y-protocols/awareness';
-import * as encoding from 'lib0/encoding';
-import * as decoding from 'lib0/decoding';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const DATA_DIR = path.join(__dirname, '..', 'data');
+const PORT = process.env.PORT || 4455;
+const HOST = '0.0.0.0';
 
-// Token authentication (disabled for local use)
-let TOKEN = '';
-const TOKEN_FILE = path.join(DATA_DIR, 'token.txt');
-
-function generateToken() {
-  return crypto.randomBytes(32).toString('hex');
+// Создаем директорию для данных
+if (!fs.existsSync(DATA_DIR)) {
+  fs.mkdirSync(DATA_DIR, { recursive: true });
 }
 
-function ensureToken() {
-  if (!fs.existsSync(DATA_DIR)) {
-    fs.mkdirSync(DATA_DIR, { recursive: true });
-  }
-  
-  if (fs.existsSync(TOKEN_FILE)) {
-    TOKEN = fs.readFileSync(TOKEN_FILE, 'utf8').trim();
-    console.log(`[Auth] Loaded existing token`);
-  } else {
-    TOKEN = generateToken();
-    fs.writeFileSync(TOKEN_FILE, TOKEN, 'utf8');
-    console.log(`[Auth] Generated new token: ${TOKEN}`);
-  }
-}
-
-// Room management with persistence
+// Хранилище документов: Map<docName, { doc: Y.Doc, persistenceFile: string }>
 const docs = new Map();
 
-function getDoc(docName) {
+/**
+ * Получает или создает Y.Doc с поддержкой персистентности
+ */
+function getOrCreateDoc(docName) {
   if (!docs.has(docName)) {
-    const doc = new Y.Doc();
-    
-    // Load persisted state
-    const docFile = path.join(DATA_DIR, `${docName}.yjs`);
-    
-    if (!fs.existsSync(DATA_DIR)) {
-      fs.mkdirSync(DATA_DIR, { recursive: true });
-    }
-    
-    if (fs.existsSync(docFile)) {
+    const doc = new Y.Doc({ gc: true });
+    const persistenceFile = path.join(DATA_DIR, `${docName}.yjs`);
+
+    // Загрузка сохраненного состояния
+    if (fs.existsSync(persistenceFile)) {
       try {
-        const state = fs.readFileSync(docFile);
+        const state = fs.readFileSync(persistenceFile);
         Y.applyUpdate(doc, state);
-        console.log(`[Doc] Loaded state for ${docName}`);
+        console.log(`[Doc] Loaded state for: ${docName}`);
       } catch (err) {
-        console.error(`[Doc] Error loading state for ${docName}:`, err);
+        console.error(`[Doc] Error loading state for ${docName}:`, err.message);
       }
+    } else {
+      console.log(`[Doc] Created new document: ${docName}`);
     }
-    
-    // Save state on changes
-    let updateTimeout = null;
+
+    // Сохранение при изменениях (с дебаунсом)
+    let saveTimeout = null;
     doc.on('update', (update) => {
-      if (updateTimeout) clearTimeout(updateTimeout);
-      updateTimeout = setTimeout(() => {
-        const state = Y.encodeStateAsUpdate(doc);
-        fs.writeFileSync(docFile, state);
-      }, 100);
+      if (saveTimeout) clearTimeout(saveTimeout);
+      saveTimeout = setTimeout(() => {
+        try {
+          const state = Y.encodeStateAsUpdate(doc);
+          fs.writeFileSync(persistenceFile, state);
+        } catch (err) {
+          console.error(`[Doc] Error saving ${docName}:`, err.message);
+        }
+      }, 500); // 500ms дебаунс
     });
-    
-    docs.set(docName, doc);
-    console.log(`[Doc] Created document: ${docName}`);
+
+    docs.set(docName, { doc, persistenceFile });
   }
-  
-  return docs.get(docName);
+
+  return docs.get(docName).doc;
 }
 
-// Create HTTP server
+/**
+ * Извлекает имя документа из URL запроса
+ * Поддерживает форматы:
+ * - /?token=XYZ/filename
+ * - /room/filename
+ * - /filename
+ */
+function extractDocNameFromUrl(urlString, host) {
+  const url = new URL(urlString, `http://${host}`);
+  let docName = 'default-room';
+
+  // Попытка извлечь имя после токена (костыль для obsidian-live-sync)
+  const tokenParam = url.searchParams.get('token');
+  if (tokenParam && tokenParam.includes('/')) {
+    const parts = tokenParam.split('/');
+    if (parts.length > 1) {
+      docName = parts[1];
+      return docName;
+    }
+  }
+
+  // Извлечение из пути
+  const pathParts = url.pathname.split('/').filter(p => p);
+  if (pathParts.length > 0) {
+    // Если есть 'doc' в пути, берем следующий элемент
+    const docIndex = pathParts.indexOf('doc');
+    if (docIndex !== -1 && docIndex + 1 < pathParts.length) {
+      docName = pathParts[docIndex + 1];
+    } else {
+      // Иначе берем последний элемент пути
+      docName = pathParts[pathParts.length - 1];
+    }
+  }
+
+  // Очистка от query параметров
+  docName = docName.split('?')[0].split('&')[0];
+
+  return docName || 'default-room';
+}
+
+// HTTP сервер для health-check
 const httpServer = http.createServer((req, res) => {
   if (req.url === '/health') {
     res.writeHead(200, { 'Content-Type': 'application/json' });
-    res.end(JSON.stringify({ status: 'ok', docs: docs.size }));
+    res.end(JSON.stringify({ status: 'ok', activeDocs: docs.size }));
   } else {
     res.writeHead(404);
     res.end('Not Found');
   }
 });
 
-// Create WebSocket server
+// WebSocket сервер
 const wss = new WebSocketServer({ 
   noServer: true,
-  maxPayload: 100 * 1024 * 1024 // 100MB max
+  maxPayload: 100 * 1024 * 1024 // 100MB лимит
 });
 
 wss.on('connection', (ws, req) => {
-  const url = new URL(req.url, `http://${req.headers.host}`);
-  const pathname = url.pathname;
+  // Извлечение имени документа
+  const docName = extractDocNameFromUrl(req.url, req.headers.host);
   
-  console.log(`[Auth] Connection accepted (no auth required)`);
+  console.log(`[Auth] Connection accepted (no auth)`);
+  console.log(`[Debug] Document: ${docName}`);
 
-  // Extract doc name from URL
-  // Plugin format: /?token=XYZ/docname or /room/docname
-  let docName = '';
-  const fullPath = req.url;
-  
-  // Try to extract doc name after token
-  const matchAfterToken = fullPath.match(/[?&]token=[^&]*\/(.+?)(?:\?.*)?$/);
-  
-  if (matchAfterToken) {
-    docName = matchAfterToken[1];
-    console.log(`[Debug] Extracted doc name from URL: ${docName}`);
-  } else {
-    // Try standard path
-    const parts = pathname.split('/').filter(p => p);
-    if (parts.length > 0) {
-      docName = parts[parts.length - 1];
-    } else {
-      docName = `doc-${Date.now()}`;
-    }
-  }
+  // Получение или создание документа
+  const doc = getOrCreateDoc(docName);
 
-  // Clean up docName
-  docName = docName.split('?')[0].split('&')[0];
-  
-  if (!docName) {
-    docName = `doc-${Date.now()}`;
-  }
-
-  const doc = getDoc(docName);
-  
-  console.log(`[Client] Connected to document: ${docName}`);
-  
-  // Create awareness instance for this connection
-  const awareness = new awarenessProtocol.Awareness(doc);
-  
-  // Handle WebSocket messages
-  ws.on('message', (message) => {
-    try {
-      const data = new Uint8Array(message);
-      const messageType = data[0];
-      
-      if (messageType === syncProtocol.messageYjsSyncStep1) {
-        // Sync Step 1: Send our state
-        const encoder = encoding.createEncoder();
-        syncProtocol.writeSyncStep1(encoder, doc);
-        ws.send(encoding.toUint8Array(encoder));
-      } else if (messageType === syncProtocol.messageYjsSyncStep2) {
-        // Sync Step 2: Apply received update
-        syncProtocol.readSyncMessage(data, encoder, doc, null);
-      } else if (messageType === syncProtocol.messageYjsUpdate) {
-        // Update: Apply received update
-        syncProtocol.readSyncMessage(data, encoder, doc, null);
-      } else if (messageType === awarenessProtocol.messageAwareness) {
-        // Awareness update
-        awarenessProtocol.applyAwarenessUpdate(awareness, data.slice(1), ws);
-      }
-    } catch (err) {
-      console.error('[Error] Message handling error:', err);
-    }
+  // Настройка соединения через официальную утилиту y-websocket
+  // Это обеспечивает полную совместимость с клиентами Yjs
+  setupWSConnection(ws, req, { 
+    docName,
+    gc: true 
   });
-  
-  // Send initial sync step 1
-  const encoder = encoding.createEncoder();
-  syncProtocol.writeSyncStep1(encoder, doc);
-  ws.send(encoding.toUint8Array(encoder));
-  
-  // Handle disconnect
+
+  console.log(`[Client] Connected to "${docName}"`);
+
   ws.on('close', () => {
-    console.log(`[Client] Disconnected from document: ${docName}`);
-    // Clean up awareness states for this client
-    const states = Array.from(awareness.getStates().keys()).filter(clientId => clientId !== doc.clientID);
-    if (states.length > 0) {
-      awarenessProtocol.removeAwarenessStates(awareness, states, null);
-    }
+    console.log(`[Client] Disconnected from "${docName}"`);
   });
-  
+
   ws.on('error', (err) => {
-    console.error('[Error] WebSocket error:', err);
+    console.error(`[Error] WebSocket error on "${docName}":`, err.message);
   });
 });
 
-// Handle upgrade from HTTP to WebSocket
+// Апгрейд HTTP -> WebSocket
 httpServer.on('upgrade', (request, socket, head) => {
   wss.handleUpgrade(request, socket, head, (ws) => {
     wss.emit('connection', ws, request);
   });
 });
 
-// Start server
-const PORT = process.env.PORT || 4455;
-const HOST = process.env.HOST || '0.0.0.0';
-
-ensureToken();
-
+// Запуск сервера
 httpServer.listen(PORT, HOST, () => {
-  console.log(`\n========================================`);
-  console.log(`🚀 Server running on ${HOST}:${PORT}`);
-  console.log(`📁 Data directory: ${DATA_DIR}`);
-  console.log(`🔑 Token: ${TOKEN} (authentication disabled)`);
-  console.log(`📝 Token saved to: ${TOKEN_FILE}`);
-  console.log(`\nConnect with: ws://${HOST}:${PORT}/any-path?token=${TOKEN}`);
-  console.log(`Health check: http://${HOST}:${PORT}/health`);
-  console.log(`========================================\n`);
+  console.log(`
+========================================
+🚀 Server running on ${HOST}:${PORT}
+📁 Data directory: ${DATA_DIR}
+🔑 Auth: DISABLED (Local only)
+🌐 Allowed origins: *
+
+Connect: ws://${HOST}:${PORT}/your-doc-name
+Health: http://${HOST}:${PORT}/health
+========================================
+`);
 });
 
-// Graceful shutdown
-process.on('SIGTERM', () => {
-  console.log('[Server] Shutting down...');
+//Graceful shutdown
+process.on('SIGTERM', shutdown);
+process.on('SIGINT', shutdown);
+
+function shutdown() {
+  console.log('\n[Server] Shutting down...');
   
-  // Save all document states
-  for (const [docName, doc] of docs.entries()) {
-    const docFile = path.join(DATA_DIR, `${docName}.yjs`);
-    const state = Y.encodeStateAsUpdate(doc);
-    fs.writeFileSync(docFile, state);
-    console.log(`[Server] Saved state for ${docName}`);
+  // Сохранение всех документов
+  let savedCount = 0;
+  for (const [docName, { doc, persistenceFile }] of docs.entries()) {
+    try {
+      const state = Y.encodeStateAsUpdate(doc);
+      fs.writeFileSync(persistenceFile, state);
+      savedCount++;
+    } catch (err) {
+      console.error(`[Server] Error saving ${docName}:`, err.message);
+    }
   }
+  
+  console.log(`[Server] Saved ${savedCount} documents`);
   
   wss.close(() => {
     httpServer.close(() => {
@@ -223,8 +194,4 @@ process.on('SIGTERM', () => {
       process.exit(0);
     });
   });
-});
-
-process.on('SIGINT', () => {
-  process.emit('SIGTERM');
-});
+}
