@@ -1,0 +1,55 @@
+```
+# Dependencies
+node_modules/
+
+# Build artifacts
+dist/
+build/
+*.cjs
+*.cjs.map
+*.mjs
+*.d.ts
+*.d.ts.map
+
+# Logs
+*.log
+
+# Coverage
+coverage/
+htmlcov/
+.coverage
+
+# Environment
+.env
+.env.local
+.env.*
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*.tmp
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Package lock
+package-lock.json
+.yarn/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Testing
+.nyc_output/
+coverage/
+lib-cov/
+
+# Distribution / packaging
+.PythonCache/
+__pycache__/
+*.so
+.PythonCache
+```
