@@ -4,6 +4,7 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import crypto from 'crypto';
 import { WebSocketServer } from 'ws';
+const WebSocket = WebSocketServer;
 import * as Y from 'yjs';
 import { messageYjsSyncStep1, messageYjsSyncStep2, messageYjsUpdate, writeSyncStep1, readSyncMessage } from 'y-protocols/sync.js';
 import { Awareness, encodeAwarenessUpdate, applyAwarenessUpdate, removeAwarenessStates } from 'y-protocols/awareness.js';
@@ -134,7 +135,7 @@ const httpServer = http.createServer((req, res) => {
 });
 
 // Create WebSocket server
-const wss = new WebSocket.Server({ 
+const wss = new WebSocketServer({ 
   noServer: true,
   maxPayload: 100 * 1024 * 1024 // 100MB max for attachments
 });
