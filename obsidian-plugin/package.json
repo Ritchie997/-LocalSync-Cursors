@@ -1,0 +1,37 @@
+{
+  "name": "obsidian-live-sync",
+  "version": "0.1.0",
+  "description": "Real-time collaborative editing with Yjs and WebSocket",
+  "main": "main.js",
+  "scripts": {
+    "dev": "node esbuild.config.mjs watch",
+    "build": "tsc -noEmit -skipLibCheck && node esbuild.config.mjs develop",
+    "release": "tsc -noEmit -skipLibCheck && node esbuild.config.mjs production"
+  },
+  "keywords": [
+    "obsidian",
+    "plugin",
+    "yjs",
+    "collaboration"
+  ],
+  "author": "",
+  "license": "MIT",
+  "devDependencies": {
+    "@tsconfig/svelte": "^5.0.4",
+    "@types/node": "^16.11.6",
+    "builtin-modules": "3.3.0",
+    "chokidar": "^3.6.0",
+    "esbuild": "^0.27.0",
+    "esbuild-svelte": "^0.8.0",
+    "obsidian": "^1.7.2",
+    "svelte": "^4.2.19",
+    "svelte-preprocess": "^5.1.4",
+    "typescript": "^5.4.5"
+  },
+  "dependencies": {
+    "tslib": "^2.8.1",
+    "y-protocols": "^1.0.5",
+    "y-websocket": "^1.5.3",
+    "yjs": "^13.6.0"
+  }
+}

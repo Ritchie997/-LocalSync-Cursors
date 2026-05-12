@@ -1,0 +1,107 @@
+/* Remote cursor styles */
+.remote-caret {
+    position: absolute;
+    border-left: black;
+    border-left-style: solid;
+    border-left-width: 2px;
+    height: 1em;
+}
+
+.remote-caret > div {
+    position: relative;
+    top: -1.05em;
+    font-size: 13px;
+    background-color: rgb(0, 129, 0);
+    font-family: serif;
+    font-style: normal;
+    font-weight: normal;
+    line-height: normal;
+    user-select: none;
+    color: white;
+    padding-left: 2px;
+    padding-right: 2px;
+    z-index: 3;
+}
+
+/* Yjs selection styles */
+.cm-ySelection {
+    background-color: rgba(0, 129, 255, 0.2);
+}
+
+.cm-yLineSelection {
+    padding: 0;
+    margin: 0px 2px 0px 4px;
+}
+
+.cm-ySelectionCaret {
+    position: relative;
+    border-left: 1px solid black;
+    border-right: 1px solid black;
+    marginLeft: -1px;
+    marginRight: -1px;
+    boxSizing: border-box;
+    display: inline;
+}
+
+.cm-ySelectionCaretDot {
+    borderRadius: 50%;
+    position: absolute;
+    width: .4em;
+    height: .4em;
+    top: -.2em;
+    left: -.2em;
+    backgroundColor: inherit;
+    transition: transform .3s ease-in-out;
+    boxSizing: border-box;
+}
+
+.cm-ySelectionCaret:hover > .cm-ySelectionCaretDot {
+    transformOrigin: bottom center;
+    transform: scale(0);
+}
+
+.cm-ySelectionInfo {
+    position: absolute;
+    top: -1.05em;
+    left: -1px;
+    fontSize: .75em;
+    fontFamily: serif;
+    fontStyle: normal;
+    fontWeight: normal;
+    lineHeight: normal;
+    userSelect: none;
+    color: white;
+    paddingLeft: 2px;
+    paddingRight: 2px;
+    zIndex: 101;
+    transition: opacity .3s ease-in-out;
+    backgroundColor: inherit;
+    opacity: 0;
+    transitionDelay: 0s;
+    whiteSpace: nowrap;
+}
+
+.cm-ySelectionCaret:hover > .cm-ySelectionInfo {
+    opacity: 1;
+    transitionDelay: 0s;
+}
+
+/* Connection status */
+.live-sync-status {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px;
+}
+
+.live-sync-status.connected {
+    color: var(--color-green);
+}
+
+.live-sync-status.disconnected {
+    color: var(--color-red);
+}
+
+.live-sync-status.connecting {
+    color: var(--color-yellow);
+}
