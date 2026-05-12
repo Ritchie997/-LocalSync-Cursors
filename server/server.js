@@ -160,17 +160,42 @@ wss.on('connection', (ws, req) => {
   //   return
   // }
   console.log(`[Auth] Connection accepted (no auth required)`);
+
+  // Handle case where plugin sends doc name after token in query string
+  // Plugin format: /?token=XYZ/docname (incorrect but common)
+  let docName = '';
+  let roomName = 'default-room';
+
+  // First check if the URL has the doc name appended after the token parameter
+  // e.g., ws://localhost:4455/?token=ABC123/docname
+  const fullPath = req.url;
+  const matchAfterToken = fullPath.match(/[?&]token=[^&]*\/(.+?)(?:\?.*)?$/);
   
-  // Parse room and doc from URL: /{room}/{doc}
-  const parts = pathname.split('/').filter(p => p);
-  if (parts.length < 2) {
-    console.log(`[Error] Invalid path: ${pathname}`);
-    ws.close(4000, 'Invalid path. Expected: /{room}/{doc}');
-    return;
+  if (matchAfterToken) {
+    // Extract doc name from the weird URL format
+    docName = matchAfterToken[1];
+    console.log(`[Debug] Extracted doc name from URL: ${docName}`);
+  } else {
+    // Try to parse standard path: /room/doc
+    const parts = pathname.split('/').filter(p => p);
+    
+    if (parts.length >= 2) {
+      docName = parts.pop();
+      roomName = parts.join('/');
+    } else if (parts.length === 1) {
+      docName = parts[0];
+    } else {
+      docName = `doc-${Date.now()}`;
+    }
   }
+
+  // Clean up docName from any trailing query params
+  docName = docName.split('?')[0].split('&')[0];
   
-  const docName = parts.pop();
-  const roomName = parts.join('/');
+  if (!docName) {
+    docName = `doc-${Date.now()}`;
+  }
+
   const room = getRoom(roomName, docName);
   
   const clientId = Math.floor(Math.random() * 1000000);
