@@ -1,0 +1,9 @@
+{
+  "id": "obsidian-live-sync",
+  "name": "Obsidian Live Sync",
+  "version": "0.1.0",
+  "minAppVersion": "0.15.0",
+  "description": "Real-time collaborative editing with Yjs and WebSocket",
+  "author": "Your Name",
+  "isDesktopOnly": false
+}
