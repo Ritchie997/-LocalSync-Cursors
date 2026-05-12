@@ -5,7 +5,10 @@ import { fileURLToPath } from 'url';
 import crypto from 'crypto';
 import { WebSocketServer } from 'ws';
 import * as Y from 'yjs';
-import { setupWSConnection } from 'y-websocket/bin/utils.js';
+import * as syncProtocol from 'y-protocols/sync';
+import * as awarenessProtocol from 'y-protocols/awareness';
+import * as encoding from 'lib0/encoding';
+import * as decoding from 'lib0/decoding';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const DATA_DIR = path.join(__dirname, '..', 'data');
@@ -129,8 +132,53 @@ wss.on('connection', (ws, req) => {
   
   console.log(`[Client] Connected to document: ${docName}`);
   
-  // Setup Yjs WebSocket connection using the standard utility
-  setupWSConnection(ws, req, { docName, gc: true });
+  // Create awareness instance for this connection
+  const awareness = new awarenessProtocol.Awareness(doc);
+  
+  // Handle WebSocket messages
+  ws.on('message', (message) => {
+    try {
+      const data = new Uint8Array(message);
+      const messageType = data[0];
+      
+      if (messageType === syncProtocol.messageYjsSyncStep1) {
+        // Sync Step 1: Send our state
+        const encoder = encoding.createEncoder();
+        syncProtocol.writeSyncStep1(encoder, doc);
+        ws.send(encoding.toUint8Array(encoder));
+      } else if (messageType === syncProtocol.messageYjsSyncStep2) {
+        // Sync Step 2: Apply received update
+        syncProtocol.readSyncMessage(data, encoder, doc, null);
+      } else if (messageType === syncProtocol.messageYjsUpdate) {
+        // Update: Apply received update
+        syncProtocol.readSyncMessage(data, encoder, doc, null);
+      } else if (messageType === awarenessProtocol.messageAwareness) {
+        // Awareness update
+        awarenessProtocol.applyAwarenessUpdate(awareness, data.slice(1), ws);
+      }
+    } catch (err) {
+      console.error('[Error] Message handling error:', err);
+    }
+  });
+  
+  // Send initial sync step 1
+  const encoder = encoding.createEncoder();
+  syncProtocol.writeSyncStep1(encoder, doc);
+  ws.send(encoding.toUint8Array(encoder));
+  
+  // Handle disconnect
+  ws.on('close', () => {
+    console.log(`[Client] Disconnected from document: ${docName}`);
+    // Clean up awareness states for this client
+    const states = Array.from(awareness.getStates().keys()).filter(clientId => clientId !== doc.clientID);
+    if (states.length > 0) {
+      awarenessProtocol.removeAwarenessStates(awareness, states, null);
+    }
+  });
+  
+  ws.on('error', (err) => {
+    console.error('[Error] WebSocket error:', err);
+  });
 });
 
 // Handle upgrade from HTTP to WebSocket
