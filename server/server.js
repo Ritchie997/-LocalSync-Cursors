@@ -267,7 +267,7 @@ httpServer.on('upgrade', (request, socket, head) => {
 });
 
 // Start server
-const PORT = process.env.PORT || 8080;
+const PORT = process.env.PORT || 4455;
 const HOST = process.env.HOST || '0.0.0.0';
 
 ensureToken();
