@@ -8,6 +8,8 @@ const WebSocket = WebSocketServer;
 import * as Y from 'yjs';
 import { messageYjsSyncStep1, messageYjsSyncStep2, messageYjsUpdate, writeSyncStep1, readSyncMessage } from 'y-protocols/sync.js';
 import { Awareness, encodeAwarenessUpdate, applyAwarenessUpdate, removeAwarenessStates } from 'y-protocols/awareness.js';
+import * as encoding from 'lib0/encoding';
+import * as decoding from 'lib0/decoding';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const DATA_DIR = path.join(__dirname, '..', 'data');
@@ -207,9 +209,9 @@ wss.on('connection', (ws, req) => {
   console.log(`[Client] Connected: ${clientId} to ${roomName}/${docName}`);
   
   // Initialize sync protocol
-  const encoder = Y.encoding.createEncoder();
+  const encoder = encoding.createEncoder();
   writeSyncStep1(encoder, room.doc);
-  ws.send(Y.encoding.toUint8Array(encoder));
+  ws.send(encoding.toUint8Array(encoder));
   
   // Send current awareness states
   const awarenessStates = room.awareness.getStates();
@@ -227,13 +229,13 @@ wss.on('connection', (ws, req) => {
       if (messageType === messageYjsSyncStep1 ||
           messageType === messageYjsSyncStep2 ||
           messageType === messageYjsUpdate) {
-        const decoder = Y.decoding.createDecoder(data);
-        const encoder = Y.encoding.createEncoder();
+        const decoder = decoding.createDecoder(data);
+        const encoder = encoding.createEncoder();
         readSyncMessage(decoder, encoder, room.doc, null);
         
         // Broadcast to other clients
         if (encoder.len > 0) {
-          const msg = Y.encoding.toUint8Array(encoder);
+          const msg = encoding.toUint8Array(encoder);
           for (const client of room.clients) {
             if (client !== ws && client.readyState === WebSocket.OPEN) {
               client.send(msg);
